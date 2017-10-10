@@ -18,6 +18,15 @@ contract DutchAuction {
     // Wait 7 days after the end of the auction, before ayone can claim tokens
     uint constant public token_claim_waiting_period = 7 days;
 
+    // Period of time during which bidders can claim their tokens; starts after the
+    // token_claim_waiting_period is over; any unclaimed tokens remaining after token_claim_period
+    // can be claimed by the wallet_address
+    uint constant public token_claim_period = 4 weeks;
+
+    // Bid value over which the bidder has to be whitelisted
+    // At deployment moment, equivalent with $15,000
+    uint constant public whitelist_limit = 50 ether;
+
     /*
      * Storage
      */
@@ -56,7 +65,11 @@ contract DutchAuction {
     // Wei per RDN (Rei * token_multiplier)
     uint public final_price;
 
+    // Bidder address => bid value
     mapping (address => uint) public bids;
+
+    // Keep registered bidders in a whitelist
+    mapping (address => bool) public whitelist;
 
     Stages public stage;
 
@@ -202,6 +215,13 @@ contract DutchAuction {
         assert(final_price > 0);
     }
 
+    function addToWhitelist(address[] _bidders) public isOwner {
+        for (uint32 i = 0; i < _bidders.length; i++) {
+            assert(_bidders[i] != 0x0);
+            whitelist[_bidders[i]] = true;
+        }
+    }
+
     /// --------------------------------- Auction Functions ------------------
 
 
@@ -243,7 +263,7 @@ contract DutchAuction {
     /// @notice Claim auction tokens for `receiver_address` after the auction has ended.
     /// @dev Claims tokens for `receiver_address` after auction has ended.
     /// @param receiver_address Tokens will be assigned to this address if eligible.
-    function proxyClaimTokens(address receiver_address)
+    function proxyClaimTokens(address bidder_address)
         public
         atStage(Stages.AuctionEnded)
         returns (bool)
@@ -252,14 +272,26 @@ contract DutchAuction {
         // Ensures enough time to check if auction was finalized correctly
         // before users start transacting tokens
         require(now > end_time + token_claim_waiting_period);
-        require(receiver_address != 0x0);
+        require(bidder_address != 0x0);
 
-        if (bids[receiver_address] == 0) {
+        if (bids[bidder_address] == 0) {
             return false;
         }
 
+        address receiver_address;
+        uint post_claim_period = end_time + token_claim_waiting_period + token_claim_period;
+
+        if (msg.sender != wallet_address) {
+            require(now < post_claim_period);
+            require(bids[bidder_address] <= whitelist_limit || whitelist[bidder_address]);
+            receiver_address = bidder_address;
+        } else {
+            require(now >= post_claim_period);
+            receiver_address = wallet_address;
+        }
+
         // Number of Rei = bid_wei / Rei = bid_wei / (wei_per_RDN * token_multiplier)
-        uint num = (token_multiplier * bids[receiver_address]) / final_price;
+        uint num = (token_multiplier * bids[bidder_address]) / final_price;
 
         // Due to final_price floor rounding, the number of assigned tokens may be higher
         // than expected. Therefore, the number of remaining unassigned auction tokens
@@ -270,14 +302,15 @@ contract DutchAuction {
         }
 
         // Update the total amount of funds for which tokens have been claimed
-        funds_claimed += bids[receiver_address];
+        funds_claimed += bids[bidder_address];
 
         // Set receiver bid to 0 before assigning tokens
-        bids[receiver_address] = 0;
+        bids[bidder_address] = 0;
+        whitelist[bidder_address] = false;
 
         require(token.transfer(receiver_address, num));
 
-        ClaimedTokens(receiver_address, num);
+        ClaimedTokens(bidder_address, num);
 
         // After the last tokens are claimed, we change the auction stage
         // Due to the above logic, rounding errors will not be an issue
@@ -287,7 +320,7 @@ contract DutchAuction {
         }
 
         assert(token.balanceOf(receiver_address) >= num);
-        assert(bids[receiver_address] == 0);
+        assert(bids[bidder_address] == 0);
         return true;
     }
 
