@@ -18,6 +18,10 @@ contract DutchAuction {
     // Wait 7 days after the end of the auction, before ayone can claim tokens
     uint constant public token_claim_waiting_period = 7 days;
 
+    // Bid value over which the bidder has to be whitelisted
+    // At deployment moment, equivalent with $15,000
+    uint constant public bid_value_limit = 50 ether;
+
     /*
      * Storage
      */
@@ -269,6 +273,12 @@ contract DutchAuction {
             num = auction_tokens_balance;
         }
 
+        uint kyc_tokens_retainer;
+        if (bids[receiver_address] > bid_value_limit) {
+            kyc_tokens_retainer = num / 10;
+            num -= kyc_tokens_retainer;
+        }
+
         // Update the total amount of funds for which tokens have been claimed
         funds_claimed += bids[receiver_address];
 
@@ -276,6 +286,9 @@ contract DutchAuction {
         bids[receiver_address] = 0;
 
         require(token.transfer(receiver_address, num));
+        if (kyc_tokens_retainer > 0) {
+            require(token.transfer(wallet_address, kyc_tokens_retainer));
+        }
 
         ClaimedTokens(receiver_address, num);
 
