@@ -33,13 +33,13 @@ contract DutchAuction {
 
     // Price decay function parameters to be changed depending on the desired outcome
 
-    // Starting price in WEI; e.g. 2 * 10 ** 18
+    // Starting price in WEI, has to be > 0; e.g. 2 * 10 ** 18
     uint public price_start;
 
-    // Divisor constant; e.g. 524880000
+    // Divisor constant, has to be > 0; e.g. 524880000
     uint public price_constant;
 
-    // Divisor exponent; e.g. 3
+    // Divisor exponent, has to be >= 0; e.g. 3
     uint32 public price_exponent;
 
     // For calculating elapsed time for price
@@ -217,7 +217,8 @@ contract DutchAuction {
         AuctionStarted(start_time, start_block);
     }
 
-    /// @notice Finalize the auction - sets the final RDN token price and changes the auction
+    /// @notice Finalize the auction - sets the final RDN token price and changes the auction.
+    /// Function is safe to be called by anyone.
     /// stage after no bids are allowed anymore.
     /// @dev Finalize auction and set the final RDN token price.
     function finalizeAuction() public atStage(Stages.AuctionStarted)
